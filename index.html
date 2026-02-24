@@ -38,6 +38,20 @@ select option { background:#00111f; }
 
 #clip-msg { position:absolute; bottom:18px; left:50%; transform:translateX(-50%); font-size:8px; letter-spacing:3px; color:rgba(255,150,60,.65); text-transform:uppercase; pointer-events:none; opacity:0; transition:opacity .3s; }
 #clip-msg.on { opacity:1; }
+
+#btn-music {
+  width:100%; padding:7px 0;
+  background:rgba(64,160,255,.1);
+  border:1px solid rgba(64,160,255,.3);
+  border-radius:4px;
+  color:#4af; font-family:'Courier New',monospace;
+  font-size:9px; letter-spacing:2px;
+  cursor:pointer; transition:all .2s;
+  text-transform:uppercase;
+  margin-top:2px;
+}
+#btn-music:hover { background:rgba(64,160,255,.22); border-color:rgba(64,160,255,.6); }
+#btn-music.playing { color:#4fd; border-color:rgba(70,220,180,.4); background:rgba(70,220,180,.08); }
 </style>
 </head>
 <body>
@@ -74,6 +88,12 @@ select option { background:#00111f; }
       <label class="row-label">Speed <em id="v-speed">1.0x</em></label>
       <input type="range" id="sl-speed" min="1" max="30" value="10">
     </div>
+    <div class="sep"></div>
+    <div class="row">
+      <label class="row-label">Music Volume <em id="v-vol">70%</em></label>
+      <input type="range" id="sl-vol" min="0" max="100" value="70">
+    </div>
+    <button id="btn-music">▶ Start Music</button>
     <div class="sep"></div>
     <div class="hints">
       <b>Drag</b> — orbit view<br>
@@ -470,6 +490,377 @@ window.addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════════════
+//  GENERATIVE MUSIC ENGINE  v3  —  Beat-driven ambient electronic
+//
+//  Structure: 90 BPM, 4/4, 8-bar phrases
+//  Layers:
+//    DRUMS  — kick, snare, hi-hat (MembraneSynth + NoiseSynth)
+//    BASS   — fat synth bassline following chord progression
+//    PAD    — slow warm chords breathing underneath
+//    PIANO  — melodic phrases over the chord changes
+//    ARPEGGIO — 16th-note arpeggios for shimmer/movement
+//    SHIMMER  — occasional high reverb sparkles
+//
+//  Chord progressions cycle through 4 moods, each 8 bars.
+//  Everything is quantised to the grid but with subtle humanisation.
+// ══════════════════════════════════════════════════════════════════════
+
+let musicStarted = false;
+
+// ── BPM & Transport ──────────────────────────────────────────────────
+Tone.Transport.bpm.value = 90;
+
+// ── Master bus ────────────────────────────────────────────────────────
+const limiter   = new Tone.Limiter(-1).toDestination();
+const masterVol = new Tone.Volume(-4).connect(limiter);
+const masterRev = new Tone.Reverb({ decay: 3.5, wet: 0.22 }).connect(masterVol);
+const masterDly = new Tone.FeedbackDelay({ delayTime: "8n", feedback: 0.25, wet: 0.15 }).connect(masterVol);
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rf(lo, hi) { return lo + Math.random() * (hi - lo); }
+function humanise(time, ms = 12) { return time + (Math.random() - 0.5) * ms / 1000; }
+
+// ── PERCUSSION — brushed / wooden, no electronic drums ───────────────
+const drumBus  = new Tone.Volume(-3).connect(masterVol);
+const drumComp = new Tone.Compressor({ threshold: -20, ratio: 3 }).connect(drumBus);
+
+// Kick: soft, felt-muffled — low thud, short pitch drop, barely any attack
+const kick = new Tone.MembraneSynth({
+  pitchDecay: 0.04, octaves: 4,          // shorter pitch sweep = less electronic
+  envelope: { attack: 0.005, decay: 0.22, sustain: 0, release: 0.08 },
+  volume: -8,
+}).connect(new Tone.Filter({ frequency: 200, type: "lowpass" }).connect(drumComp));
+
+// Snare: brushed — pink noise, very short, filtered softly
+const snareNoise = new Tone.NoiseSynth({
+  noise: { type: "pink" },               // pink = warmer than white
+  envelope: { attack: 0.002, decay: 0.09, sustain: 0, release: 0.06 },
+  volume: -14,
+}).connect(new Tone.Filter({ frequency: 4500, type: "bandpass", Q: 0.7 }).connect(drumComp));
+
+// Rim / woodblock sound (replaces snare tone) — short membrane click
+const snareTone = new Tone.MembraneSynth({
+  pitchDecay: 0.008, octaves: 1.5,
+  envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
+  volume: -20,
+}).connect(drumComp);
+
+// Hi-hat: soft brush swish — pink noise, very low velocity, narrow band
+const hihat = new Tone.NoiseSynth({
+  noise: { type: "pink" },
+  envelope: { attack: 0.003, decay: 0.055, sustain: 0, release: 0.03 },
+  volume: -24,
+}).connect(new Tone.Filter({ frequency: 5500, type: "highpass" }).connect(drumComp));
+
+// Open hat: gentle sizzle
+const openhat = new Tone.NoiseSynth({
+  noise: { type: "pink" },
+  envelope: { attack: 0.004, decay: 0.18, sustain: 0, release: 0.12 },
+  volume: -28,
+}).connect(new Tone.Filter({ frequency: 5000, type: "highpass" }).connect(drumComp));
+
+// ── BASS — upright / acoustic pluck ──────────────────────────────────
+// AMSynth with fast decay mimics the thwack of a plucked upright bass string
+const bassBus = new Tone.Volume(-2).connect(masterVol);
+const bassWarm = new Tone.Filter({ frequency: 320, type: "lowpass", rolloff: -12 }).connect(bassBus);
+const bass = new Tone.AMSynth({
+  harmonicity: 2.5,
+  oscillator: { type: "triangle" },
+  envelope:        { attack: 0.005, decay: 0.55, sustain: 0.1,  release: 0.6 },
+  modulation:      { type: "square" },
+  modulationEnvelope: { attack: 0.002, decay: 0.2,  sustain: 0.0,  release: 0.3 },
+  volume: -6,
+}).connect(bassWarm);
+
+// ── STRINGS PAD — warm cello/viola section, dark and textural ─────────
+const padBus  = new Tone.Volume(-4).connect(masterRev);
+const padChor = new Tone.Chorus({ frequency: 0.12, delayTime: 6, depth: 0.7, wet: 0.6 }).connect(padBus);
+const padFilt = new Tone.Filter({ frequency: 900, type: "lowpass", rolloff: -24 }).connect(padChor); // cut highs hard — no beep possible
+const pad = new Tone.PolySynth(Tone.Synth, {
+  oscillator: { type: "sine" },          // sine = no harmonics at all, purely smooth
+  envelope: { attack: 3.0, decay: 0.5, sustain: 0.85, release: 1.0 }, // slow bow-on, short release
+  volume: -14,
+}).connect(padFilt);
+pad.maxPolyphony = 3;                    // max 3 notes at once — a tight chord, nothing extra
+
+let padCurrentNotes = [];
+
+function setPadChord(notes, when) {
+  const barLen = (60 / Tone.Transport.bpm.value) * 4;
+  // Release previous notes cleanly
+  if (padCurrentNotes.length > 0) {
+    padCurrentNotes.forEach(n => pad.triggerRelease(n, when - 0.08));
+  }
+  // Only play the bottom 3 notes max — no high notes sneaking in
+  const safeNotes = notes.slice(0, 3).map(n =>
+    n.replace(/(\d)$/, m => Math.min(parseInt(m), 4).toString()) // cap at octave 4
+  );
+  padCurrentNotes = [...safeNotes];
+  safeNotes.forEach((n, i) => pad.triggerAttack(n, when + i * 0.06));
+  // Release before next bar
+  safeNotes.forEach(n => pad.triggerRelease(n, when + barLen - 0.5));
+}
+
+// ── GUITAR — fingerpicked acoustic, Karplus-Strong style ─────────────
+// FMSynth with zero sustain = each note plucks and dies naturally, can't stack/beep
+const guitarRev = new Tone.Reverb({ decay: 1.6, wet: 0.35 }).connect(masterVol);
+const guitarWarm = new Tone.Filter({ frequency: 2800, type: "lowpass", rolloff: -12 }).connect(guitarRev);
+const guitar = new Tone.PolySynth(Tone.FMSynth, {
+  harmonicity: 3.5,
+  modulationIndex: 1.2,
+  oscillator: { type: "triangle" },
+  envelope:           { attack: 0.001, decay: 0.45, sustain: 0.0, release: 0.5 },
+  modulation:         { type: "square" },
+  modulationEnvelope: { attack: 0.001, decay: 0.2,  sustain: 0.0, release: 0.2 },
+  volume: -13,
+}).connect(guitarWarm);
+guitar.maxPolyphony = 5; // cap voices so nothing piles up
+
+// (arp removed — pure acoustic feel)
+
+// (shimmer removed — keeping it warm and acoustic)
+
+// ── CHORD PROGRESSIONS ────────────────────────────────────────────────
+// Each prog = array of {pad, bass, melody, arp} per bar
+// We'll cycle through 4 moods, each lasting 8 bars
+const PROGRESSIONS = [
+  // Mood 1: Dm - Am - F - C  (melancholic)
+  [
+    { pad:['D3','A3','C4'], bass:'D2', mel:['D4','F4','A4','C5'], arp:['D4','F4','A4','D5'] },
+    { pad:['A3','E4','G4'], bass:'A1', mel:['E4','A4','C5','E5'], arp:['A3','C4','E4','A4'] },
+    { pad:['F3','A3','C4'], bass:'F2', mel:['F4','A4','C5','F5'], arp:['F3','A3','C4','F4'] },
+    { pad:['C3','G3','E4'], bass:'C2', mel:['E4','G4','C5','E5'], arp:['C4','E4','G4','C5'] },
+  ],
+  // Mood 2: G - D - Em - C  (hopeful)
+  [
+    { pad:['G3','B3','D4'], bass:'G2', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
+    { pad:['D3','A3','F4'], bass:'D2', mel:['D4','F4','A4','D5'], arp:['D4','F4','A4','D5'] },
+    { pad:['E3','G3','B3'], bass:'E2', mel:['E4','G4','B4','E5'], arp:['E3','G3','B3','E4'] },
+    { pad:['C3','G3','E4'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
+  ],
+  // Mood 3: Am - F - C - G  (driving)
+  [
+    { pad:['A2','E3','A3'], bass:'A1', mel:['A4','C5','E5','A5'], arp:['A3','C4','E4','A4'] },
+    { pad:['F3','A3','C4'], bass:'F2', mel:['F4','A4','C5','F5'], arp:['F3','A3','C4','F4'] },
+    { pad:['C3','E3','G3'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
+    { pad:['G3','B3','D4'], bass:'G1', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
+  ],
+  // Mood 4: Em - C - G - D  (epic)
+  [
+    { pad:['E3','G3','B3'], bass:'E2', mel:['E4','G4','B4','E5'], arp:['E3','G3','B3','E4'] },
+    { pad:['C3','E3','G3'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
+    { pad:['G2','D3','G3'], bass:'G1', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
+    { pad:['D3','F3','A3'], bass:'D2', mel:['D4','F4','A4','D5'], arp:['D4','F4','A4','D5'] },
+  ],
+];
+
+// ── Beat patterns (16 steps = 1 bar, 16th notes) ─────────────────────
+// 1 = hit, 0 = rest, decimal = velocity
+const KICK_PATTERNS = [
+  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],  // 4-on-floor lite
+  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],  // with variation
+  [1,0,0,0, 0,0,0,0, 1,0,0.6,0, 0,0,0,0], // ghost kick
+  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,1,0,0],  // syncopated
+];
+const SNARE_PATTERNS = [
+  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],  // straight 2&4
+  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0.5,0], // ghost snare
+  [0,0,0,0, 1,0,0.4,0, 0,0,0,0, 1,0,0,0], // pre-snap
+  [0,0,0,0, 1,0,0,0, 0,0,0.4,0, 1,0,0,0], // variation
+];
+const HIHAT_PATTERNS = [
+  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],  // 8ths
+  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],  // 16ths
+  [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,1,0],  // offbeat push
+  [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,0,0],  // swung feel
+];
+const OPENHAT_STEPS = [
+  [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],  // on "and" of 2 & 4
+  [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,1],
+];
+
+// ── State ─────────────────────────────────────────────────────────────
+let isPlaying = false;
+let bar = 0;             // current bar within 8-bar phrase
+let phraseBar = 0;       // bar within current 4-chord loop (0–3)
+let moodIdx = 0;         // which progression mood
+let kickPat = 0, snarePat = 0, hihatPat = 0, openPat = 0;
+let sequences = [];      // Tone.Sequence objects to stop later
+
+// ── Bar change handler — fires every bar ──────────────────────────────
+function onBarChange(barTime) {
+  const prog = PROGRESSIONS[moodIdx];
+  const chord = prog[phraseBar % prog.length];
+
+  // Swap pad chord — clean release of old notes before new attack
+  setPadChord(chord.pad, barTime + 0.01);
+
+  // Bass: play a small bassline motif for this bar
+  scheduleBassMotif(chord.bass, barTime);
+
+  // Guitar: fingerpicked phrase every 2 bars
+  if (phraseBar % 2 === 0) {
+    scheduleGuitarPhrase(chord.mel, barTime);
+  }
+
+  // Advance
+  phraseBar++;
+  bar++;
+  if (bar % 8 === 0) {
+    // New 8-bar phrase: pick new mood + new beat patterns
+    moodIdx = (moodIdx + Math.floor(rf(1, 4))) % PROGRESSIONS.length;
+    kickPat   = Math.floor(Math.random() * KICK_PATTERNS.length);
+    snarePat  = Math.floor(Math.random() * SNARE_PATTERNS.length);
+    hihatPat  = Math.floor(Math.random() * HIHAT_PATTERNS.length);
+    openPat   = Math.floor(Math.random() * OPENHAT_STEPS.length);
+    phraseBar = 0;
+    updateDrumSequences();
+  }
+}
+
+// ── Bass motif ────────────────────────────────────────────────────────
+function scheduleBassMotif(root, barTime) {
+  const beatLen = 60 / Tone.Transport.bpm.value;
+  const motifs = [
+    [0, 0, 1, 0, 0, 0, 0.6, 0, 1, 0, 0, 0, 0, 0, 0.5, 0],
+    [1, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0.9, 0, 0, 0],
+    [1, 0, 0, 0.4, 0, 0, 0.8, 0, 0, 0.4, 0, 0, 0.9, 0, 0, 0.5],
+  ];
+  const motif = rnd(motifs);
+  const step = beatLen / 4;
+  motif.forEach((vel, i) => {
+    if (vel > 0) {
+      // Pluck feel: short note duration for upright bass character
+      bass.triggerAttackRelease(root, "8n", humanise(barTime + i * step, 14), vel * 0.75);
+    }
+  });
+}
+
+// ── Guitar phrase — fingerpicked, stays in warm mid range ─────────────
+function scheduleGuitarPhrase(notes, barTime) {
+  const beatLen = 60 / Tone.Transport.bpm.value;
+  const count = Math.floor(rf(3, 7));
+  const span  = beatLen * 8; // spread across 2 bars
+  let positions = [];
+  for (let i = 0; i < count; i++) positions.push(rf(0.1, span - 0.3));
+  positions.sort((a, b) => a - b);
+
+  positions.forEach((pos, idx) => {
+    // Stay in mid range — drop any note that would be above octave 4
+    let note = rnd(notes);
+    note = note.replace(/(\d)$/, m => Math.min(parseInt(m), 4).toString());
+    const vel = idx === 0 ? rf(0.5, 0.75) : rf(0.28, 0.55);
+    // Short fixed duration — pluck dies on its own, no sustain overlap
+    guitar.triggerAttackRelease(note, "8n", humanise(barTime + pos, 20), vel);
+  });
+}
+
+// ── Drum sequences ────────────────────────────────────────────────────
+function clearSequences() {
+  sequences.forEach(s => { s.stop(); s.dispose(); });
+  sequences = [];
+}
+
+function updateDrumSequences() {
+  clearSequences();
+  const kp = KICK_PATTERNS[kickPat];
+  const sp = SNARE_PATTERNS[snarePat];
+  const hp = HIHAT_PATTERNS[hihatPat];
+  const op = OPENHAT_STEPS[openPat];
+
+  const kickSeq = new Tone.Sequence((time, vel) => {
+    if (vel > 0) kick.triggerAttackRelease("C1", "8n", humanise(time, 4), vel);
+  }, kp, "16n");
+
+  const snareSeq = new Tone.Sequence((time, vel) => {
+    if (vel > 0) {
+      snareNoise.triggerAttackRelease("8n", humanise(time, 6), vel);
+      snareTone.triggerAttackRelease("D2", "8n", humanise(time, 6), vel * 0.8);
+    }
+  }, sp, "16n");
+
+  const hihatSeq = new Tone.Sequence((time, vel) => {
+    if (vel > 0) hihat.triggerAttackRelease("16n", humanise(time, 8), vel * rf(0.6, 1.0));
+  }, hp, "16n");
+
+  const openSeq = new Tone.Sequence((time, vel) => {
+    if (vel > 0) openhat.triggerAttackRelease("8n", humanise(time, 5), vel * 0.7);
+  }, op, "16n");
+
+  [kickSeq, snareSeq, hihatSeq, openSeq].forEach(s => { s.start(0); sequences.push(s); });
+}
+
+// ── Bar loop — schedules itself every bar ─────────────────────────────
+let barLoop = null;
+
+function startBarLoop() {
+  const barDur = (60 / Tone.Transport.bpm.value) * 4;
+  barLoop = new Tone.Loop(time => { onBarChange(time); }, "1m");
+  barLoop.start(0);
+}
+
+// ── Start / Stop ──────────────────────────────────────────────────────
+async function startMusic() {
+  await Tone.start();
+
+  isPlaying = true;
+  bar = 0; phraseBar = 0; moodIdx = 0;
+  kickPat = 0; snarePat = 0; hihatPat = 0; openPat = 0;
+
+  // Warm up reverbs
+  await Promise.all([
+    masterRev.ready//, pianoRev.ready, shimRev.ready
+  ]);
+
+  updateDrumSequences();
+  startBarLoop();
+  Tone.Transport.start("+0.1");
+}
+
+function stopMusic() {
+  isPlaying = false;
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  clearSequences();
+  if (barLoop) { barLoop.stop(); barLoop.dispose(); barLoop = null; }
+  pad.releaseAll();
+  padCurrentNotes = [];
+  guitar.releaseAll();
+  bass.triggerRelease();
+}
+
+// ── Volume control ────────────────────────────────────────────────────
+document.getElementById('sl-vol').addEventListener('input', function() {
+  const v = parseInt(this.value);
+  document.getElementById('v-vol').textContent = v + '%';
+  const db = v === 0 ? -Infinity : -36 + v * 0.36;
+  masterVol.volume.rampTo(db, 0.3);
+});
+
+// ── Button ────────────────────────────────────────────────────────────
+const btn = document.getElementById('btn-music');
+btn.addEventListener('click', async () => {
+  if (!musicStarted) {
+    musicStarted = true;
+    btn.textContent = '⏳ Loading...';
+    btn.disabled = true;
+    await startMusic();
+    btn.textContent = '■ Stop Music';
+    btn.classList.add('playing');
+    btn.disabled = false;
+  } else {
+    musicStarted = false;
+    stopMusic();
+    btn.textContent = '▶ Start Music';
+    btn.classList.remove('playing');
+    btn.disabled = false;
+  }
 });
 </script>
 </body>
