@@ -272,7 +272,7 @@ function buildNucleus(Z) {
     }));
     nucleusGroup.add(new THREE.Mesh(new THREE.SphereGeometry(size*m, 16, 16), hm));
   });
-}
+} 
 
 // ── Build probability clouds ──────────────────────────────────────────
 function buildClouds() {
@@ -509,7 +509,6 @@ window.addEventListener('resize', () => {
 //  Chord progressions cycle through 4 moods, each 8 bars.
 //  Everything is quantised to the grid but with subtle humanisation.
 // ══════════════════════════════════════════════════════════════════════
-
 let musicStarted = false;
 
 // ── BPM & Transport ──────────────────────────────────────────────────
@@ -518,203 +517,179 @@ Tone.Transport.bpm.value = 90;
 // ── Master bus ────────────────────────────────────────────────────────
 const limiter   = new Tone.Limiter(-1).toDestination();
 const masterVol = new Tone.Volume(-4).connect(limiter);
-const masterRev = new Tone.Reverb({ decay: 3.5, wet: 0.22 }).connect(masterVol);
-const masterDly = new Tone.FeedbackDelay({ delayTime: "8n", feedback: 0.25, wet: 0.15 }).connect(masterVol);
+const masterRev = new Tone.Reverb({ decay: 4.0, wet: 0.28 }).connect(masterVol);
+const masterDly = new Tone.FeedbackDelay({ delayTime: "8n", feedback: 0.18, wet: 0.10 }).connect(masterVol);
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function rf(lo, hi) { return lo + Math.random() * (hi - lo); }
 function humanise(time, ms = 12) { return time + (Math.random() - 0.5) * ms / 1000; }
 
-// ── PERCUSSION — brushed / wooden, no electronic drums ───────────────
+// ── PERCUSSION — brushed / wooden ────────────────────────────────────
 const drumBus  = new Tone.Volume(-3).connect(masterVol);
 const drumComp = new Tone.Compressor({ threshold: -20, ratio: 3 }).connect(drumBus);
 
-// Kick: soft, felt-muffled — low thud, short pitch drop, barely any attack
+// Kick: soft felt thud
 const kick = new Tone.MembraneSynth({
-  pitchDecay: 0.04, octaves: 4,          // shorter pitch sweep = less electronic
+  pitchDecay: 0.04, octaves: 4,
   envelope: { attack: 0.005, decay: 0.22, sustain: 0, release: 0.08 },
   volume: -8,
 }).connect(new Tone.Filter({ frequency: 200, type: "lowpass" }).connect(drumComp));
 
-// Snare: brushed — pink noise, very short, filtered softly
+// Snare: brushed — pink noise, warm bandpass, very quiet
 const snareNoise = new Tone.NoiseSynth({
-  noise: { type: "pink" },               // pink = warmer than white
-  envelope: { attack: 0.002, decay: 0.09, sustain: 0, release: 0.06 },
-  volume: -14,
-}).connect(new Tone.Filter({ frequency: 4500, type: "bandpass", Q: 0.7 }).connect(drumComp));
+  noise: { type: "pink" },
+  envelope: { attack: 0.003, decay: 0.10, sustain: 0, release: 0.07 },
+  volume: -16,
+}).connect(new Tone.Filter({ frequency: 2800, type: "bandpass", Q: 0.5 }).connect(drumComp));
 
-// Rim / woodblock sound (replaces snare tone) — short membrane click
-const snareTone = new Tone.MembraneSynth({
-  pitchDecay: 0.008, octaves: 1.5,
-  envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
-  volume: -20,
-}).connect(drumComp);
-
-// Hi-hat: soft brush swish — pink noise, very low velocity, narrow band
+// Hi-hat: soft brush swish
 const hihat = new Tone.NoiseSynth({
   noise: { type: "pink" },
   envelope: { attack: 0.003, decay: 0.055, sustain: 0, release: 0.03 },
-  volume: -24,
+  volume: -26,
 }).connect(new Tone.Filter({ frequency: 5500, type: "highpass" }).connect(drumComp));
 
 // Open hat: gentle sizzle
 const openhat = new Tone.NoiseSynth({
   noise: { type: "pink" },
   envelope: { attack: 0.004, decay: 0.18, sustain: 0, release: 0.12 },
-  volume: -28,
+  volume: -30,
 }).connect(new Tone.Filter({ frequency: 5000, type: "highpass" }).connect(drumComp));
 
-// ── BASS — upright / acoustic pluck ──────────────────────────────────
-// AMSynth with fast decay mimics the thwack of a plucked upright bass string
-const bassBus = new Tone.Volume(-2).connect(masterVol);
-const bassWarm = new Tone.Filter({ frequency: 320, type: "lowpass", rolloff: -12 }).connect(bassBus);
-const bass = new Tone.AMSynth({
-  harmonicity: 2.5,
-  oscillator: { type: "triangle" },
-  envelope:        { attack: 0.005, decay: 0.55, sustain: 0.1,  release: 0.6 },
-  modulation:      { type: "square" },
-  modulationEnvelope: { attack: 0.002, decay: 0.2,  sustain: 0.0,  release: 0.3 },
-  volume: -6,
+// ── BASS — upright pluck feel ─────────────────────────────────────────
+// Sine oscillator, very slow attack (blooms in), zero sustain = pluck
+// Stays in octaves 1-2 so it never reaches "beep" territory
+const bassBus  = new Tone.Volume(-2).connect(masterVol);
+const bassWarm = new Tone.Filter({ frequency: 220, type: "lowpass", rolloff: -24 }).connect(bassBus);
+const bass = new Tone.Synth({
+  oscillator: { type: "sine" },
+  // Longer attack (0.04) means no transient click; zero sustain = natural pluck bloom
+  envelope: { attack: 0.04, decay: 0.6, sustain: 0.0, release: 0.5 },
+  volume: -5,
 }).connect(bassWarm);
 
-// ── STRINGS PAD — warm cello/viola section, dark and textural ─────────
+// ── STRINGS PAD — warm, slow chords ──────────────────────────────────
 const padBus  = new Tone.Volume(-4).connect(masterRev);
 const padChor = new Tone.Chorus({ frequency: 0.12, delayTime: 6, depth: 0.7, wet: 0.6 }).connect(padBus);
-const padFilt = new Tone.Filter({ frequency: 900, type: "lowpass", rolloff: -24 }).connect(padChor); // cut highs hard — no beep possible
+const padFilt = new Tone.Filter({ frequency: 900, type: "lowpass", rolloff: -24 }).connect(padChor);
 const pad = new Tone.PolySynth(Tone.Synth, {
-  oscillator: { type: "sine" },          // sine = no harmonics at all, purely smooth
-  envelope: { attack: 3.0, decay: 0.5, sustain: 0.85, release: 1.0 }, // slow bow-on, short release
+  oscillator: { type: "sine" },
+  envelope: { attack: 3.0, decay: 0.5, sustain: 0.85, release: 1.0 },
   volume: -14,
 }).connect(padFilt);
-pad.maxPolyphony = 3;                    // max 3 notes at once — a tight chord, nothing extra
+pad.maxPolyphony = 3;
 
 let padCurrentNotes = [];
 
 function setPadChord(notes, when) {
   const barLen = (60 / Tone.Transport.bpm.value) * 4;
-  // Release previous notes cleanly
   if (padCurrentNotes.length > 0) {
     padCurrentNotes.forEach(n => pad.triggerRelease(n, when - 0.08));
   }
-  // Only play the bottom 3 notes max — no high notes sneaking in
   const safeNotes = notes.slice(0, 3).map(n =>
-    n.replace(/(\d)$/, m => Math.min(parseInt(m), 4).toString()) // cap at octave 4
+    n.replace(/(\d)$/, m => Math.min(parseInt(m), 4).toString())
   );
   padCurrentNotes = [...safeNotes];
   safeNotes.forEach((n, i) => pad.triggerAttack(n, when + i * 0.06));
-  // Release before next bar
   safeNotes.forEach(n => pad.triggerRelease(n, when + barLen - 0.5));
 }
 
-// ── GUITAR — fingerpicked acoustic, Karplus-Strong style ─────────────
-// FMSynth with zero sustain = each note plucks and dies naturally, can't stack/beep
-const guitarRev = new Tone.Reverb({ decay: 1.6, wet: 0.35 }).connect(masterVol);
-const guitarWarm = new Tone.Filter({ frequency: 2800, type: "lowpass", rolloff: -12 }).connect(guitarRev);
-const guitar = new Tone.PolySynth(Tone.FMSynth, {
-  harmonicity: 3.5,
-  modulationIndex: 1.2,
-  oscillator: { type: "triangle" },
-  envelope:           { attack: 0.001, decay: 0.45, sustain: 0.0, release: 0.5 },
-  modulation:         { type: "square" },
-  modulationEnvelope: { attack: 0.001, decay: 0.2,  sustain: 0.0, release: 0.2 },
-  volume: -13,
+// ── GUITAR — fingerpicked acoustic pluck ──────────────────────────────
+// Uses a sine oscillator with a longer decay so it sounds like a
+// plucked string blooming and fading, not an electronic bip.
+// Notes are kept well below octave 5 and spread far apart in time.
+const guitarRev  = new Tone.Reverb({ decay: 2.2, wet: 0.45 }).connect(masterVol);
+const guitarWarm = new Tone.Filter({ frequency: 1800, type: "lowpass", rolloff: -24 }).connect(guitarRev);
+const guitar = new Tone.PolySynth(Tone.Synth, {
+  oscillator: { type: "sine" },
+  // Slightly longer attack (0.008) removes the transient click;
+  // longer decay (0.7) gives the note time to breathe before dying
+  envelope: { attack: 0.008, decay: 0.70, sustain: 0.0, release: 0.55 },
+  volume: -11,
 }).connect(guitarWarm);
-guitar.maxPolyphony = 5; // cap voices so nothing piles up
-
-// (arp removed — pure acoustic feel)
-
-// (shimmer removed — keeping it warm and acoustic)
+guitar.maxPolyphony = 3;
 
 // ── CHORD PROGRESSIONS ────────────────────────────────────────────────
-// Each prog = array of {pad, bass, melody, arp} per bar
-// We'll cycle through 4 moods, each lasting 8 bars
 const PROGRESSIONS = [
-  // Mood 1: Dm - Am - F - C  (melancholic)
+  // Mood 1: Dm - Am - F - C
   [
-    { pad:['D3','A3','C4'], bass:'D2', mel:['D4','F4','A4','C5'], arp:['D4','F4','A4','D5'] },
-    { pad:['A3','E4','G4'], bass:'A1', mel:['E4','A4','C5','E5'], arp:['A3','C4','E4','A4'] },
-    { pad:['F3','A3','C4'], bass:'F2', mel:['F4','A4','C5','F5'], arp:['F3','A3','C4','F4'] },
-    { pad:['C3','G3','E4'], bass:'C2', mel:['E4','G4','C5','E5'], arp:['C4','E4','G4','C5'] },
+    { pad:['D3','A3','C4'], bass:'D2', mel:['D3','F3','A3','C4'] },
+    { pad:['A3','E4','G4'], bass:'A1', mel:['E3','A3','C4','E4'] },
+    { pad:['F3','A3','C4'], bass:'F2', mel:['F3','A3','C4','F4'] },
+    { pad:['C3','G3','E4'], bass:'C2', mel:['E3','G3','C4','E4'] },
   ],
-  // Mood 2: G - D - Em - C  (hopeful)
+  // Mood 2: G - D - Em - C
   [
-    { pad:['G3','B3','D4'], bass:'G2', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
-    { pad:['D3','A3','F4'], bass:'D2', mel:['D4','F4','A4','D5'], arp:['D4','F4','A4','D5'] },
-    { pad:['E3','G3','B3'], bass:'E2', mel:['E4','G4','B4','E5'], arp:['E3','G3','B3','E4'] },
-    { pad:['C3','G3','E4'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
+    { pad:['G3','B3','D4'], bass:'G2', mel:['G3','B3','D4','G4'] },
+    { pad:['D3','A3','F4'], bass:'D2', mel:['D3','F3','A3','D4'] },
+    { pad:['E3','G3','B3'], bass:'E2', mel:['E3','G3','B3','E4'] },
+    { pad:['C3','G3','E4'], bass:'C2', mel:['C3','E3','G3','C4'] },
   ],
-  // Mood 3: Am - F - C - G  (driving)
+  // Mood 3: Am - F - C - G
   [
-    { pad:['A2','E3','A3'], bass:'A1', mel:['A4','C5','E5','A5'], arp:['A3','C4','E4','A4'] },
-    { pad:['F3','A3','C4'], bass:'F2', mel:['F4','A4','C5','F5'], arp:['F3','A3','C4','F4'] },
-    { pad:['C3','E3','G3'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
-    { pad:['G3','B3','D4'], bass:'G1', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
+    { pad:['A2','E3','A3'], bass:'A1', mel:['A3','C4','E4','A4'] },
+    { pad:['F3','A3','C4'], bass:'F2', mel:['F3','A3','C4','F4'] },
+    { pad:['C3','E3','G3'], bass:'C2', mel:['C3','E3','G3','C4'] },
+    { pad:['G3','B3','D4'], bass:'G1', mel:['G3','B3','D4','G4'] },
   ],
-  // Mood 4: Em - C - G - D  (epic)
+  // Mood 4: Em - C - G - D
   [
-    { pad:['E3','G3','B3'], bass:'E2', mel:['E4','G4','B4','E5'], arp:['E3','G3','B3','E4'] },
-    { pad:['C3','E3','G3'], bass:'C2', mel:['C4','E4','G4','C5'], arp:['C4','E4','G4','C5'] },
-    { pad:['G2','D3','G3'], bass:'G1', mel:['G4','B4','D5','G5'], arp:['G3','B3','D4','G4'] },
-    { pad:['D3','F3','A3'], bass:'D2', mel:['D4','F4','A4','D5'], arp:['D4','F4','A4','D5'] },
+    { pad:['E3','G3','B3'], bass:'E2', mel:['E3','G3','B3','E4'] },
+    { pad:['C3','E3','G3'], bass:'C2', mel:['C3','E3','G3','C4'] },
+    { pad:['G2','D3','G3'], bass:'G1', mel:['G3','B3','D4','G4'] },
+    { pad:['D3','F3','A3'], bass:'D2', mel:['D3','F3','A3','D4'] },
   ],
 ];
 
 // ── Beat patterns (16 steps = 1 bar, 16th notes) ─────────────────────
-// 1 = hit, 0 = rest, decimal = velocity
 const KICK_PATTERNS = [
-  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],  // 4-on-floor lite
-  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],  // with variation
-  [1,0,0,0, 0,0,0,0, 1,0,0.6,0, 0,0,0,0], // ghost kick
-  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,1,0,0],  // syncopated
+  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+  [1,0,0,0, 0,0,0,0, 1,0,0.6,0, 0,0,0,0],
+  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,1,0,0],
 ];
 const SNARE_PATTERNS = [
-  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],  // straight 2&4
-  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0.5,0], // ghost snare
-  [0,0,0,0, 1,0,0.4,0, 0,0,0,0, 1,0,0,0], // pre-snap
-  [0,0,0,0, 1,0,0,0, 0,0,0.4,0, 1,0,0,0], // variation
+  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0.5,0],
+  [0,0,0,0, 1,0,0.4,0, 0,0,0,0, 1,0,0,0],
+  [0,0,0,0, 1,0,0,0, 0,0,0.4,0, 1,0,0,0],
 ];
 const HIHAT_PATTERNS = [
-  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],  // 8ths
-  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],  // 16ths
-  [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,1,0],  // offbeat push
-  [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,0,0],  // swung feel
+  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+  [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,1,0],
+  [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,0,0],
 ];
 const OPENHAT_STEPS = [
-  [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],  // on "and" of 2 & 4
+  [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
   [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,1],
 ];
 
 // ── State ─────────────────────────────────────────────────────────────
 let isPlaying = false;
-let bar = 0;             // current bar within 8-bar phrase
-let phraseBar = 0;       // bar within current 4-chord loop (0–3)
-let moodIdx = 0;         // which progression mood
+let bar = 0;
+let phraseBar = 0;
+let moodIdx = 0;
 let kickPat = 0, snarePat = 0, hihatPat = 0, openPat = 0;
-let sequences = [];      // Tone.Sequence objects to stop later
+let sequences = [];
 
-// ── Bar change handler — fires every bar ──────────────────────────────
+// ── Bar change handler ────────────────────────────────────────────────
 function onBarChange(barTime) {
-  const prog = PROGRESSIONS[moodIdx];
+  const prog  = PROGRESSIONS[moodIdx];
   const chord = prog[phraseBar % prog.length];
 
-  // Swap pad chord — clean release of old notes before new attack
   setPadChord(chord.pad, barTime + 0.01);
-
-  // Bass: play a small bassline motif for this bar
   scheduleBassMotif(chord.bass, barTime);
 
-  // Guitar: fingerpicked phrase every 2 bars
   if (phraseBar % 2 === 0) {
     scheduleGuitarPhrase(chord.mel, barTime);
   }
 
-  // Advance
   phraseBar++;
   bar++;
   if (bar % 8 === 0) {
-    // New 8-bar phrase: pick new mood + new beat patterns
-    moodIdx = (moodIdx + Math.floor(rf(1, 4))) % PROGRESSIONS.length;
+    moodIdx   = (moodIdx + Math.floor(rf(1, 4))) % PROGRESSIONS.length;
     kickPat   = Math.floor(Math.random() * KICK_PATTERNS.length);
     snarePat  = Math.floor(Math.random() * SNARE_PATTERNS.length);
     hihatPat  = Math.floor(Math.random() * HIHAT_PATTERNS.length);
@@ -724,40 +699,60 @@ function onBarChange(barTime) {
   }
 }
 
-// ── Bass motif ────────────────────────────────────────────────────────
+// ── Bass motif — sparse, low, warm ───────────────────────────────────
+// Only 3–4 hits per bar instead of up to 8; all in octave 1 or 2.
+// Longer note duration ("4n" instead of "8n") so each note blooms
+// rather than firing as a short staccato bip.
 function scheduleBassMotif(root, barTime) {
   const beatLen = 60 / Tone.Transport.bpm.value;
-  const motifs = [
-    [0, 0, 1, 0, 0, 0, 0.6, 0, 1, 0, 0, 0, 0, 0, 0.5, 0],
-    [1, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0.9, 0, 0, 0],
-    [1, 0, 0, 0.4, 0, 0, 0.8, 0, 0, 0.4, 0, 0, 0.9, 0, 0, 0.5],
+
+  // Sparse: only hit on beats 1 and a random off-beat, plus occasionally beat 3
+  const sparse = [
+    [1, 0, 0, 0,  0, 0, 0, 0,  0.7, 0, 0, 0,  0, 0, 0, 0],
+    [1, 0, 0, 0,  0, 0, 0, 0,  0,   0, 0, 0,  0.8, 0, 0, 0],
+    [1, 0, 0, 0,  0, 0, 0.7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 0, 0, 0,  0, 0, 0, 0,  0.6, 0, 0, 0,  0, 0, 0.5, 0],
   ];
-  const motif = rnd(motifs);
-  const step = beatLen / 4;
+  const motif = rnd(sparse);
+  const step  = beatLen / 4;
+
+  // Force octave 1 to stay below any beep range
+  const lowRoot = root.replace(/(\d)$/, () => '1');
+
   motif.forEach((vel, i) => {
     if (vel > 0) {
-      // Pluck feel: short note duration for upright bass character
-      bass.triggerAttackRelease(root, "8n", humanise(barTime + i * step, 14), vel * 0.75);
+      // Use "4n" so the note lasts a full beat — no staccato clicking
+      bass.triggerAttackRelease(lowRoot, "4n", humanise(barTime + i * step, 18), vel * 0.65);
     }
   });
 }
 
-// ── Guitar phrase — fingerpicked, stays in warm mid range ─────────────
+// ── Guitar phrase — widely spaced, warm, no rapid firing ─────────────
+// Only 2–4 notes spread across 2 bars. Notes capped at octave 4.
+// Long enough pauses between notes that none of them sound like beeps.
 function scheduleGuitarPhrase(notes, barTime) {
   const beatLen = 60 / Tone.Transport.bpm.value;
-  const count = Math.floor(rf(3, 7));
-  const span  = beatLen * 8; // spread across 2 bars
-  let positions = [];
-  for (let i = 0; i < count; i++) positions.push(rf(0.1, span - 0.3));
-  positions.sort((a, b) => a - b);
+  // 2 bars of space to spread notes across
+  const span  = beatLen * 8;
+  // Fewer notes, wider minimum gap between them
+  const count = Math.floor(rf(2, 5));
+
+  // Build positions with a minimum gap of ~0.6 seconds between notes
+  const minGap = 0.6;
+  let positions = [rf(0.1, 0.5)];
+  for (let i = 1; i < count; i++) {
+    const last = positions[positions.length - 1];
+    const next = rf(last + minGap, Math.min(last + 2.5, span - 0.3));
+    if (next < span - 0.1) positions.push(next);
+  }
 
   positions.forEach((pos, idx) => {
-    // Stay in mid range — drop any note that would be above octave 4
     let note = rnd(notes);
+    // Keep notes in a comfortable mid range — never above octave 4
     note = note.replace(/(\d)$/, m => Math.min(parseInt(m), 4).toString());
-    const vel = idx === 0 ? rf(0.5, 0.75) : rf(0.28, 0.55);
-    // Short fixed duration — pluck dies on its own, no sustain overlap
-    guitar.triggerAttackRelease(note, "8n", humanise(barTime + pos, 20), vel);
+    // Quieter velocities — first note slightly louder as a "pluck"
+    const vel = idx === 0 ? rf(0.42, 0.62) : rf(0.22, 0.45);
+    // guitar.triggerAttackRelease(note, "4n", humanise(barTime + pos, 25), vel);
   });
 }
 
@@ -779,10 +774,7 @@ function updateDrumSequences() {
   }, kp, "16n");
 
   const snareSeq = new Tone.Sequence((time, vel) => {
-    if (vel > 0) {
-      snareNoise.triggerAttackRelease("8n", humanise(time, 6), vel);
-      snareTone.triggerAttackRelease("D2", "8n", humanise(time, 6), vel * 0.8);
-    }
+    if (vel > 0) snareNoise.triggerAttackRelease("8n", humanise(time, 6), vel);
   }, sp, "16n");
 
   const hihatSeq = new Tone.Sequence((time, vel) => {
@@ -796,11 +788,10 @@ function updateDrumSequences() {
   [kickSeq, snareSeq, hihatSeq, openSeq].forEach(s => { s.start(0); sequences.push(s); });
 }
 
-// ── Bar loop — schedules itself every bar ─────────────────────────────
+// ── Bar loop ──────────────────────────────────────────────────────────
 let barLoop = null;
 
 function startBarLoop() {
-  const barDur = (60 / Tone.Transport.bpm.value) * 4;
   barLoop = new Tone.Loop(time => { onBarChange(time); }, "1m");
   barLoop.start(0);
 }
@@ -813,9 +804,8 @@ async function startMusic() {
   bar = 0; phraseBar = 0; moodIdx = 0;
   kickPat = 0; snarePat = 0; hihatPat = 0; openPat = 0;
 
-  // Warm up reverbs
-  await Promise.all([
-    masterRev.ready//, pianoRev.ready, shimRev.ready
+  await Promise.all([masterRev.ready//, guitarRev.ready
+
   ]);
 
   updateDrumSequences();
@@ -843,17 +833,25 @@ document.getElementById('sl-vol').addEventListener('input', function() {
   masterVol.volume.rampTo(db, 0.3);
 });
 
+// ── Button ─────────────────────────────────────────────────────
+
+// ── Volume control ────────────────────────────────────────────────────
+document.getElementById('sl-vol').addEventListener('input', function() {
+  const v = parseInt(this.value);
+  document.getElementById('v-vol').textContent = v + '%';
+  const db = v === 0 ? -Infinity : -36 + v * 0.36;
+  masterVol.volume.rampTo(db, 0.3);
+});
+
 // ── Button ────────────────────────────────────────────────────────────
 const btn = document.getElementById('btn-music');
 btn.addEventListener('click', async () => {
   if (!musicStarted) {
     musicStarted = true;
-    btn.textContent = '⏳ Loading...';
-    btn.disabled = true;
-    await startMusic();
     btn.textContent = '■ Stop Music';
     btn.classList.add('playing');
     btn.disabled = false;
+    startMusic();
   } else {
     musicStarted = false;
     stopMusic();
